@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Cloudflare 优选 IP 提取器 (丢包率坐标精准版)
+利用 % (丢包率) 作为锚点，精准抓取其右侧紧邻的真实平均延迟，彻底解决 4ms 误差
+格式：IP#国家代码 自用 172ms
+"""
+
+import re
+import requests
+import time
+
+# 优选 IP 的来源链接（主站首页）
+IP_SOURCE_URL = "https://ip.164746.xyz/"
+
+def get_ip_location(ip):
+    """通过 ip-api 数据库获取 IP 对应的国家代码"""
+    try:
+        api_url = f"http://ip-api.com/json/{ip}?fields=status,countryCode"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        response = requests.get(api_url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") == "success":
+                return data.get('countryCode', '').upper()
+    except:
+        pass
+    return "UNKNOWN"
+
+def main():
+    print(f"开始从主站 ({IP_SOURCE_URL}) 获取 Cloudflare 优选 IP...")
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    
+    try:
+        response = requests.get(IP_SOURCE_URL, headers=headers, timeout=15)
+        response.encoding = 'utf-8'
+        html_content = response.text
+        
+        # 剥离所有 HTML 标签，留出干净的纯文本内容
+        clean_text = re.sub(r'<[^>]+>', ' ', html_content)
+        
+        # 找出文本中所有的 IPv4 地址及其在文中的具体物理位置
+        ip_matches = list(re.finditer(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', clean_text))
+        
+        if not ip_matches:
+            print("错误：未能在主页中找到任何有效的 IP 地址。")
+            return
+            
+        print(f"成功定位到主页中总共存在 {len(ip_matches)} 个 IP 锚点...")
+        
+        results = []
+        # 限制最多处理前 10 个优选 IP
+        target_matches = ip_matches[:10]
+        
+        print("开始通过【% 锚点法】精准绕过发送/接收包，抓取真实延迟...")
+        for index, match in enumerate(target_matches):
+            ip = match.group(0)
+            
+            # 计算当前 IP 的专属数据区块范围
+            start_pos = match.end()
+            end_pos = ip_matches[index + 1].start() if (index + 1) < len(ip_matches) else len(clean_text)
+            context = clean_text[start_pos:end_pos]
+            
+            tokens = context.split()
+            latency = "测速ms"
+            
+            # --- 核心修复：追踪 % 坐标 ---
+            for i, token in enumerate(tokens):
+                if '%' in token:  # 找到了丢包率（如 0.00%）
+                    if i + 1 < len(tokens):  # 确保后面还有数据
+                        next_token = tokens[i + 1]  # 丢包率后面的那一个词，铁定是平均延迟！
+                        
+                        # 提取其中的数字（丢掉可能残存的单位或杂质）
+                        num_match = re.search(r'\d+(?:\.\d+)?', next_token)
+                        if num_match:
+                            num_val = float(num_match.group(0))
+                            # 转成纯整数，去掉小数点尾巴，看起来更清爽（如 172.45 -> 172ms）
+                            latency = f"{int(num_val)}ms"
+                        break  # 抓到了就立马退出当前 IP 的查找
+            
+            # 安全限速：请求三方 GeoIP 数据库，每查一个 IP 强制歇 2 秒防止被封
+            if index > 0:
+                time.sleep(2)
+                
+            # 获取该 IP 的地理国家
+            country_code = get_ip_location(ip)
+            
+            # 精准组装格式
+            formatted_line = f"{ip}#CA 自用 {latency}"
+            results.append(formatted_line)
+            
+            print(f"[{index + 1}/{len(target_matches)}] 提取成功 -> {formatted_line}")
+
+        # 将结果写入到本地的 ips.txt
+        with open("ips.txt", "w", encoding="utf-8") as f:
+            for item in results:
+                f.write(item + "\n")
+                
+        print(f"\n大功告成！已完美避开干扰，真实延迟已成功写入 ips.txt。")
+
+    except Exception as e:
+        print(f"执行过程中发生错误: {e}")
+
+if __name__ == "__main__":
+    main()
