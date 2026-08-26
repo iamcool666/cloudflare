@@ -1,0 +1,37 @@
+name: 'Fetch and Filter IPs'
+
+on:
+  schedule:
+    - cron: '21 */4 * * *' # 每 1 小时自动运行一次
+  workflow_dispatch:      # 支持手动点击按钮随时运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    # 核心修正：賦予 Actions 寫入權限，避免最後 git push 時發生 403 權限錯誤
+    permissions:
+      contents: write
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v6 # 升級至最新 v6 主版本，全面原生支援 Node 24
+
+      - name: 'Set up Python'
+        uses: actions/setup-python@v6 # 升級至最新 v6 主版本，全面原生支援 Node24
+        with:
+          python-version: '3.12'
+
+      - name: 'Install dependencies'
+        run: pip install requests
+
+      - name: 'Run Filter Script'
+        run: python dnscf.py
+
+      - name: 'Commit and Push Changes'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add ips.txt
+          # 只有在文件有实质变动时才提交，防止空提交报错导致流程显示红叉
+          git diff --quiet && git diff --staged --quiet || (git commit -m "自动更新优选国别 IP 列表" && git push)
