@@ -86,7 +86,7 @@ def main():
             country_code = get_ip_location(ip)
             
             # 精准组装格式
-            formatted_line = f"{ip}#CA 自用 {latency}"
+            formatted_line = f"{ip}#CA 抓取 {latency}"
             results.append(formatted_line)
             
             print(f"[{index + 1}/{len(target_matches)}] 提取成功 -> {formatted_line}")
