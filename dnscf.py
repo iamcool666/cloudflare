@@ -3,7 +3,7 @@
 """
 Cloudflare 优选 IP 提取器 (丢包率坐标精准版)
 利用 % (丢包率) 作为锚点，精准抓取其右侧紧邻的真实平均延迟，彻底解决 4ms 误差
-格式：IP#CA 抓取 172ms 序号 (新抓取的排在最前，全量重新排序)
+格式：IP#CA 抓取 172ms 序号 (新抓取的排在最前，自动剔除旧的重复 IP，全量重新排序)
 """
 
 import os
@@ -27,6 +27,11 @@ def get_ip_location(ip):
     except:
         pass
     return "UNKNOWN"
+
+def extract_ip_from_line(line):
+    """从一行文本中提取出真实的 IP 地址（用于去重判断）"""
+    match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', line)
+    return match.group(0) if match else None
 
 def main():
     print(f"开始从主站 ({IP_SOURCE_URL}) 获取 Cloudflare 优选 IP...")
@@ -92,26 +97,38 @@ def main():
             
             print(f"[{index + 1}/{len(target_matches)}] 提取成功 -> {base_formatted}")
 
-        # --- 核心修改：读取旧数据，并把新抓取的排在最前 ---
-        old_lines = []
+        # --- 核心修改：读取旧数据 + 剔除重复 IP ---
+        seen_ips = set()       # 记录已经出现的 IP
+        final_lines = []       # 最终要保存的所有行（基础文本，无序号）
+
+        # 1. 优先放入最新抓取的 IP
+        for line in new_results:
+            ip = extract_ip_from_line(line)
+            if ip and ip not in seen_ips:
+                seen_ips.add(ip)
+                final_lines.append(line)
+
+        # 2. 读取旧文件，如果 IP 已经存在于 seen_ips，则跳过（即剔除旧的重复 IP）
         if os.path.exists("ips.txt"):
             with open("ips.txt", "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line:
-                        # 正则剥离末尾的数字序号，还原基础内容 (如 "104.18.37.179#CA 抓取 68ms 1" -> "104.18.37.179#CA 抓取 68ms")
+                        # 正则剥离末尾的数字序号，还原基础内容
                         clean_line = re.sub(r'\s+\d+$', '', line)
-                        old_lines.append(clean_line)
+                        ip = extract_ip_from_line(clean_line)
+                        
+                        # 如果这个旧 IP 在新抓取的列表里没出现过，才保留它
+                        if ip and ip not in seen_ips:
+                            seen_ips.add(ip)
+                            final_lines.append(clean_line)
 
-        # 合并：新数据在前，旧数据在后
-        all_lines = new_results + old_lines
-
-        # 重新从 1 开始编写序号并写入 ips.txt
+        # 3. 重新从 1 开始编写序号并写入 ips.txt
         with open("ips.txt", "w", encoding="utf-8") as f:
-            for idx, item in enumerate(all_lines, start=1):
+            for idx, item in enumerate(final_lines, start=1):
                 f.write(f"{item} {idx}\n")
                 
-        print(f"\n大功告成！已成功将本次新抓取的 {len(new_results)} 条数据插入顶部，并对全量数据（共 {len(all_lines)} 条）重新完成了 1 ~ {len(all_lines)} 的序号编排！")
+        print(f"\n大功告成！已成功将本次新抓取的 IP 插入顶部，剔除了旧文件中的重复 IP，并对全量数据（共 {len(final_lines)} 条）重新完成了 1 ~ {len(final_lines)} 的序号编排！")
 
     except Exception as e:
         print(f"执行过程中发生错误: {e}")
