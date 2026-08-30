@@ -3,9 +3,10 @@
 """
 Cloudflare 优选 IP 提取器 (丢包率坐标精准版)
 利用 % (丢包率) 作为锚点，精准抓取其右侧紧邻的真实平均延迟，彻底解决 4ms 误差
-格式：IP#国家代码 自用 172ms
+格式：IP#CA 抓取 172ms 序号 (新抓取的排在最前，全量重新排序)
 """
 
+import os
 import re
 import requests
 import time
@@ -48,7 +49,7 @@ def main():
             
         print(f"成功定位到主页中总共存在 {len(ip_matches)} 个 IP 锚点...")
         
-        results = []
+        new_results = []
         # 限制最多处理前 10 个优选 IP
         target_matches = ip_matches[:10]
         
@@ -85,18 +86,32 @@ def main():
             # 获取该 IP 的地理国家
             country_code = get_ip_location(ip)
             
-            # 精准组装格式
-            formatted_line = f"{ip}#CA 抓取 {latency}"
-            results.append(formatted_line)
+            # 基础格式（暂不加序号，等后续统一编号）
+            base_formatted = f"{ip}#CA 抓取 {latency}"
+            new_results.append(base_formatted)
             
-            print(f"[{index + 1}/{len(target_matches)}] 提取成功 -> {formatted_line}")
+            print(f"[{index + 1}/{len(target_matches)}] 提取成功 -> {base_formatted}")
 
-        # 将结果写入到本地的 ips.txt
+        # --- 核心修改：读取旧数据，并把新抓取的排在最前 ---
+        old_lines = []
+        if os.path.exists("ips.txt"):
+            with open("ips.txt", "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        # 正则剥离末尾的数字序号，还原基础内容 (如 "104.18.37.179#CA 抓取 68ms 1" -> "104.18.37.179#CA 抓取 68ms")
+                        clean_line = re.sub(r'\s+\d+$', '', line)
+                        old_lines.append(clean_line)
+
+        # 合并：新数据在前，旧数据在后
+        all_lines = new_results + old_lines
+
+        # 重新从 1 开始编写序号并写入 ips.txt
         with open("ips.txt", "w", encoding="utf-8") as f:
-            for item in results:
-                f.write(item + "\n")
+            for idx, item in enumerate(all_lines, start=1):
+                f.write(f"{item} {idx}\n")
                 
-        print(f"\n大功告成！已完美避开干扰，真实延迟已成功写入 ips.txt。")
+        print(f"\n大功告成！已成功将本次新抓取的 {len(new_results)} 条数据插入顶部，并对全量数据（共 {len(all_lines)} 条）重新完成了 1 ~ {len(all_lines)} 的序号编排！")
 
     except Exception as e:
         print(f"执行过程中发生错误: {e}")
