@@ -6,6 +6,7 @@ Cloudflare 优选 IP 提取器 (多来源去重及安全诊断版)
 来源 2: 飞牛 NAS WebDAV 读取 WEBDAV_URL (ip_best_443.txt) -> 合并至 ips.txt (443)
 来源 3: 飞牛 NAS WebDAV 读取 WEBDAV_URL2 (ip_best_8443.txt) -> 单独生成 ips8443.txt (8443)
 
+限制：IP 序号从 1 开始，最多保留最新 15 个 IP，超出部分自动删除最早的 IP。
 格式：IP#CA 抓取 172ms 序号
 """
 
@@ -155,31 +156,34 @@ def fetch_from_webdav_url(webdav_url, tag="来源 2"):
     return share_results
 
 
-def process_and_save_ips(new_data, target_file):
-    """通用的去重、整合历史记录、自增序号并保存函数"""
+def process_and_save_ips(new_data, target_file, max_limit=15):
+    """去重、合并历史记录、限制最多保留 max_limit 条（超出的最早记录被擦除），重新从 1 开始编号并保存"""
     seen_ips = set()
     final_lines = []
 
-    # 1. 装载本次抓取的 IP
+    # 1. 优先装载本次最新抓取的 IP（新数据排最前面）
     for line in new_data:
         ip = extract_ip_from_line(line)
         if ip and ip not in seen_ips:
             seen_ips.add(ip)
             final_lines.append(line)
 
-    # 2. 读取历史文件补充未重复的 IP
+    # 2. 读取历史文件，补充尚未重复的历史 IP（按从新到老排序）
     if os.path.exists(target_file):
         with open(target_file, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
-                    clean_line = re.sub(r'\s+\d+$', '', line)  # 剔除原有数字序号
+                    clean_line = re.sub(r'\s+\d+$', '', line)  # 剔除旧数字序号
                     ip = extract_ip_from_line(clean_line)
                     if ip and ip not in seen_ips:
                         seen_ips.add(ip)
                         final_lines.append(clean_line)
 
-    # 3. 重新编排序号并写入文件
+    # 3. 截取最多 max_limit (15) 条，优先剔除末尾（最早）的 IP
+    final_lines = final_lines[:max_limit]
+
+    # 4. 重新从 1 开始追加序号并写入文件
     with open(target_file, "w", encoding="utf-8") as f:
         for idx, item in enumerate(final_lines, start=1):
             f.write(f"{item} {idx}\n")
@@ -201,17 +205,17 @@ def main():
     # 3. 读取来源 3（NAS WebDAV 8443 - WEBDAV_URL2）
     dav_results_8443 = fetch_from_webdav_url(webdav_url_8443, tag="来源 3 (8443)")
     
-    # ------------------ 处理 ips.txt (合并 来源1 + 来源2) ------------------
+    # ------------------ 处理 ips.txt (合并 来源1 + 来源2，最多保留 15 个) ------------------
     new_443_results = web_results + dav_results_443
-    total_443 = process_and_save_ips(new_443_results, "ips.txt")
+    total_443 = process_and_save_ips(new_443_results, "ips.txt", max_limit=15)
     
-    # ------------------ 处理 ips8443.txt (单独处理 来源3) ------------------
-    total_8443 = process_and_save_ips(dav_results_8443, "ips8443.txt")
+    # ------------------ 处理 ips8443.txt (单独处理 来源3，最多保留 15 个) ------------------
+    total_8443 = process_and_save_ips(dav_results_8443, "ips8443.txt", max_limit=15)
     
     print(f"\n==========================================")
     print(f"处理完成！")
-    print(f"[ips.txt]    (来源1+来源2 443)  : 新获 {len(new_443_results)} 条 | 去重整合后总计 {total_443} 条已编号写入 ips.txt")
-    print(f"[ips8443.txt](来源3 8443)      : 新获 {len(dav_results_8443)} 条 | 去重整合后总计 {total_8443} 条已编号写入 ips8443.txt")
+    print(f"[ips.txt]    (443 端口)  : 当前已整理最新 {total_443} 条 IP (1~{total_443}) 写入 ips.txt")
+    print(f"[ips8443.txt](8443 端口) : 当前已整理最新 {total_8443} 条 IP (1~{total_8443}) 写入 ips8443.txt")
 
 
 if __name__ == "__main__":
