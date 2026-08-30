@@ -2,23 +2,22 @@ name: 'Fetch and Filter IPs'
 
 on:
   schedule:
-    - cron: '21 */4 * * *' # 每 1 小时自动运行一次
+    - cron: '21 */4 * * *' # 每 4 小时第 21 分钟自动运行一次
   workflow_dispatch:      # 支持手动点击按钮随时运行
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
-    # 核心修正：賦予 Actions 寫入權限，避免最後 git push 時發生 403 權限錯誤
     permissions:
       contents: write
 
     steps:
       - name: 'Checkout'
-        uses: actions/checkout@v6 # 升級至最新 v6 主版本，全面原生支援 Node 24
+        uses: actions/checkout@v4
 
       - name: 'Set up Python'
-        uses: actions/setup-python@v6 # 升級至最新 v6 主版本，全面原生支援 Node24
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -26,6 +25,11 @@ jobs:
         run: pip install requests
 
       - name: 'Run Filter Script'
+        # 环境变量注入：将 GitHub Secrets 安全传递给 dnscf.py
+        env:
+          NAS_USER: ${{ secrets.NAS_USER }}
+          NAS_PASS: ${{ secrets.NAS_PASS }}
+          WEBDAV_URL: ${{ secrets.WEBDAV_URL }} # 例如：https://ilove.pp.ua:5006/共享文件夹/ips.txt
         run: python dnscf.py
 
       - name: 'Commit and Push Changes'
@@ -33,5 +37,5 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add ips.txt
-          # 只有在文件有实质变动时才提交，防止空提交报错导致流程显示红叉
+          # 仅在文件改动时提交，防止空提交报错
           git diff --quiet && git diff --staged --quiet || (git commit -m "自动更新优选国别 IP 列表" && git push)
