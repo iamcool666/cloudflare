@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Cloudflare 优选 IP 提取器 (双来源去重版)
+Cloudflare 优选 IP 提取器 (双来源去重及安全诊断版)
 来源 1: 网页锚点提取 (https://ip.164746.xyz/)
-来源 2: 飞牛 NAS WebDAV 安全读取 (https://ilove.pp.ua:5006/...)
+来源 2: 飞牛 NAS WebDAV 安全读取 (环境变量 + 自动诊断)
 格式：IP#CA 抓取 172ms 序号
 """
 
@@ -92,28 +92,36 @@ def fetch_from_web_anchor(web_url):
 
 
 def fetch_from_webdav():
-    """[来源 2] 通过 WebDAV + 环境变量安全读取飞牛 NAS 上的 ips.txt"""
-    # 优先从 GitHub Actions 环境变量读取配置
-    webdav_url = os.environ.get("WEBDAV_URL", "https://ilove.pp.ua:5006/共享文件夹/ips.txt")
+    """[来源 2] 通过 WebDAV + 环境变量安全读取飞牛 NAS 上的 ip_best.txt"""
+    # 优先从环境变量获取，如不存在则使用默认路径
+    webdav_url = os.environ.get("WEBDAV_URL", "https://ilove.pp.ua:5006/docker/cf-speedtest/ip_best.txt")
     nas_user = os.environ.get("NAS_USER")
     nas_pass = os.environ.get("NAS_PASS")
 
     print(f"\n[来源 2] 正在向 WebDAV 请求文件: {webdav_url}")
     share_results = []
 
-    # 校验是否配置了账号密码
+    # 1. 环境变量缺失检查
     if not nas_user or not nas_pass:
-        print("[来源 2] 警告: 未在环境变量中检测到 NAS_USER 或 NAS_PASS，跳过 WebDAV 读取。")
+        print("[来源 2] 警告: 未检测到 NAS_USER 或 NAS_PASS 环境变量，跳过 WebDAV 读取。")
+        print("          请检查 GitHub Secrets 中是否添加了 NAS_USER 与 NAS_PASS。")
         return share_results
 
     try:
+        # 忽略 SSL 警告（防止自签名或 DDNS 证书报错）
+        import requests.packages.urllib3
+        requests.packages.urllib3.disable_warnings()
+
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         response = requests.get(
             webdav_url,
             auth=HTTPBasicAuth(nas_user, nas_pass),
             headers=headers,
-            timeout=15
+            timeout=15,
+            verify=False  # 禁用 SSL 验证，确保连接成功
         )
+
+        print(f"[来源 2] 服务器响应状态码: HTTP {response.status_code}")
 
         if response.status_code == 200:
             response.encoding = 'utf-8'
@@ -126,15 +134,19 @@ def fetch_from_webdav():
                     continue
                 ip = extract_ip_from_line(line)
                 if ip:
-                    clean_line = re.sub(r'\s+\d+$', '', line)  # 剔除原有数字序号
+                    clean_line = re.sub(r'\s+\d+$', '', line)  # 剔除原有的数字序号
                     share_results.append(clean_line)
                     
-            print(f"[来源 2] 读取成功！共从 WebDAV 解析出 {len(share_results)} 条 IP 记录。")
+            print(f"[来源 2] 读取成功！解析出 {len(share_results)} 条 IP 记录。")
+        elif response.status_code == 401:
+            print("[来源 2] 报错 401 (未授权): 请检查 Secret 中的 NAS_USER 和 NAS_PASS 是否正确，或账号是否有该目录只读权限。")
+        elif response.status_code == 404:
+            print("[来源 2] 报错 404 (未找到): 路径不正确。请在 WEBDAV_URL 中尝试去掉 /docker 试下是否为根目录映射。")
         else:
-            print(f"[来源 2] 读取失败，HTTP 状态码: {response.status_code}")
+            print(f"[来源 2] 请求未成功，返回内容预览: {response.text[:150]}")
 
     except Exception as e:
-        print(f"[来源 2] WebDAV 请求过程发生异常: {e}")
+        print(f"[来源 2] 连接 WebDAV 过程发生异常: {e}")
         
     return share_results
 
