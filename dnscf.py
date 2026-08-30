@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Cloudflare 优选 IP 提取器 (丢包率坐标精准版)
-利用 % (丢包率) 作为锚点，精准抓取其右侧紧邻的真实平均延迟，彻底解决 4ms 误差
-格式：IP#CA 抓取 172ms 序号 (新抓取的排在最前，自动剔除旧的重复 IP，全量重新排序)
+Cloudflare 优选 IP 多源提取器 (带动态 Token 解析 & 自动去重)
+格式：IP#CA 抓取 172ms 序号
+支持：从网页锚点提取 + 从网盘动态提取最新 Token 下载文本并合并
 """
 
 import os
@@ -11,8 +11,13 @@ import re
 import requests
 import time
 
-# 优选 IP 的来源链接（主站首页）
+# --- 来源设置 ---
+# 来源 1：原 IP 来源链接（主站首页）
 IP_SOURCE_URL = "https://ip.164746.xyz/"
+
+# 来源 2：飞牛/网盘主分享页面链接（不带临时 Token 的主链接）
+SHARE_PAGE_URL = "http://ilove.pp.ua:5666/s/1c2c1b7dac5944f0bd"
+
 
 def get_ip_location(ip):
     """通过 ip-api 数据库获取 IP 对应的国家代码"""
@@ -28,41 +33,91 @@ def get_ip_location(ip):
         pass
     return "UNKNOWN"
 
+
 def extract_ip_from_line(line):
     """从一行文本中提取出真实的 IP 地址（用于去重判断）"""
     match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', line)
     return match.group(0) if match else None
 
-def main():
-    print(f"开始从主站 ({IP_SOURCE_URL}) 获取 Cloudflare 优选 IP...")
+
+def fetch_from_share_link(share_url):
+    """从主分享页面自动解析最新的下载 Token 并提取 IP"""
+    print(f"\n[来源 2] 正在请求分享主页面解析最新下载 Token: {share_url}")
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    share_results = []
     
     try:
-        response = requests.get(IP_SOURCE_URL, headers=headers, timeout=15)
+        resp = requests.get(share_url, headers=headers, timeout=10)
+        html = resp.text
+
+        # 1. 尝试从 HTML 或脚本源码中正则匹配带 token 的下载接口/参数
+        token_match = re.search(r'token=([a-f0-9]+)', html)
+        
+        if token_match:
+            token = token_match.group(1)
+            # 从原始主链接提取唯一的代码标识（例如 1c2c1b7dac5944f0bd）
+            code_match = re.search(r'/s/([a-f0-9]+)', share_url)
+            code = code_match.group(1) if code_match else "1c2c1b7dac5944f0bd"
+            
+            # 拼接出包含最新 Token 的真正下载链接
+            download_url = f"http://ilove.pp.ua:5666/s/download/{code}?token={token}"
+            print(f"成功提取到动态下载链接: {download_url}")
+        else:
+            # 备用防线：如果网页源码没写死 token，尝试直接拼接带 /download/ 的路径请求
+            print("未在源码中直接匹配到 token，尝试使用直连模式请求文件...")
+            download_url = share_url.replace("/s/", "/s/download/")
+
+        # 2. 请求下载文件
+        file_resp = requests.get(download_url, headers=headers, timeout=15)
+        if file_resp.status_code == 200:
+            file_resp.encoding = 'utf-8'
+            content = file_resp.text
+            
+            # 从文件文本中逐行提取 IP
+            lines = content.splitlines()
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                ip = extract_ip_from_line(line)
+                if ip:
+                    # 如果原文本里自带格式就提取原格式，否则包装默认格式
+                    clean_line = re.sub(r'\s+\d+$', '', line)  # 剔除原有数字序号
+                    share_results.append(clean_line)
+                    
+            print(f"[来源 2] 提取成功，共获取到 {len(share_results)} 个 IP 记录。")
+        else:
+            print(f"[来源 2] 下载文件失败，HTTP 状态码: {file_resp.status_code}")
+
+    except Exception as e:
+        print(f"[来源 2] 提取过程中发生异常: {e}")
+        
+    return share_results
+
+
+def fetch_from_web_anchor(web_url):
+    """[来源 1] 原有的网页 % 锚点提取逻辑"""
+    print(f"\n[来源 1] 开始从主站 ({web_url}) 获取 IP...")
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    results = []
+    
+    try:
+        response = requests.get(web_url, headers=headers, timeout=15)
         response.encoding = 'utf-8'
         html_content = response.text
         
-        # 剥离所有 HTML 标签，留出干净的纯文本内容
         clean_text = re.sub(r'<[^>]+>', ' ', html_content)
-        
-        # 找出文本中所有的 IPv4 地址及其在文中的具体物理位置
         ip_matches = list(re.finditer(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', clean_text))
         
         if not ip_matches:
-            print("错误：未能在主页中找到任何有效的 IP 地址。")
-            return
+            print("[来源 1] 未能在主页中找到任何有效的 IP 地址。")
+            return results
             
-        print(f"成功定位到主页中总共存在 {len(ip_matches)} 个 IP 锚点...")
-        
-        new_results = []
-        # 限制最多处理前 10 个优选 IP
+        print(f"[来源 1] 成功定位到 {len(ip_matches)} 个 IP 锚点，提取前 10 个...")
         target_matches = ip_matches[:10]
         
-        print("开始通过【% 锚点法】精准绕过发送/接收包，抓取真实延迟...")
         for index, match in enumerate(target_matches):
             ip = match.group(0)
-            
-            # 计算当前 IP 的专属数据区块范围
             start_pos = match.end()
             end_pos = ip_matches[index + 1].start() if (index + 1) < len(ip_matches) else len(clean_text)
             context = clean_text[start_pos:end_pos]
@@ -70,68 +125,71 @@ def main():
             tokens = context.split()
             latency = "测速ms"
             
-            # --- 核心修复：追踪 % 坐标 ---
             for i, token in enumerate(tokens):
-                if '%' in token:  # 找到了丢包率（如 0.00%）
-                    if i + 1 < len(tokens):  # 确保后面还有数据
-                        next_token = tokens[i + 1]  # 丢包率后面的那一个词，铁定是平均延迟！
-                        
-                        # 提取其中的数字（丢掉可能残存的单位或杂质）
+                if '%' in token:
+                    if i + 1 < len(tokens):
+                        next_token = tokens[i + 1]
                         num_match = re.search(r'\d+(?:\.\d+)?', next_token)
                         if num_match:
-                            num_val = float(num_match.group(0))
-                            # 转成纯整数，去掉小数点尾巴，看起来更清爽（如 172.45 -> 172ms）
-                            latency = f"{int(num_val)}ms"
-                        break  # 抓到了就立马退出当前 IP 的查找
+                            latency = f"{int(float(num_match.group(0)))}ms"
+                        break
             
-            # 安全限速：请求三方 GeoIP 数据库，每查一个 IP 强制歇 2 秒防止被封
             if index > 0:
                 time.sleep(2)
                 
-            # 获取该 IP 的地理国家
             country_code = get_ip_location(ip)
-            
-            # 基础格式（暂不加序号，等后续统一编号）
             base_formatted = f"{ip}#CA 抓取 {latency}"
-            new_results.append(base_formatted)
-            
+            results.append(base_formatted)
             print(f"[{index + 1}/{len(target_matches)}] 提取成功 -> {base_formatted}")
-
-        # --- 核心修改：读取旧数据 + 剔除重复 IP ---
-        seen_ips = set()       # 记录已经出现的 IP
-        final_lines = []       # 最终要保存的所有行（基础文本，无序号）
-
-        # 1. 优先放入最新抓取的 IP
-        for line in new_results:
-            ip = extract_ip_from_line(line)
-            if ip and ip not in seen_ips:
-                seen_ips.add(ip)
-                final_lines.append(line)
-
-        # 2. 读取旧文件，如果 IP 已经存在于 seen_ips，则跳过（即剔除旧的重复 IP）
-        if os.path.exists("ips.txt"):
-            with open("ips.txt", "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        # 正则剥离末尾的数字序号，还原基础内容
-                        clean_line = re.sub(r'\s+\d+$', '', line)
-                        ip = extract_ip_from_line(clean_line)
-                        
-                        # 如果这个旧 IP 在新抓取的列表里没出现过，才保留它
-                        if ip and ip not in seen_ips:
-                            seen_ips.add(ip)
-                            final_lines.append(clean_line)
-
-        # 3. 重新从 1 开始编写序号并写入 ips.txt
-        with open("ips.txt", "w", encoding="utf-8") as f:
-            for idx, item in enumerate(final_lines, start=1):
-                f.write(f"{item} {idx}\n")
-                
-        print(f"\n大功告成！已成功将本次新抓取的 IP 插入顶部，剔除了旧文件中的重复 IP，并对全量数据（共 {len(final_lines)} 条）重新完成了 1 ~ {len(final_lines)} 的序号编排！")
-
+            
     except Exception as e:
-        print(f"执行过程中发生错误: {e}")
+        print(f"[来源 1] 提取发生错误: {e}")
+        
+    return results
+
+
+def main():
+    # 1. 执行来源 1 抓取
+    web_results = fetch_from_web_anchor(IP_SOURCE_URL)
+    
+    # 2. 执行来源 2 抓取 (动态获取 Token 并下载)
+    share_results = fetch_from_share_link(SHARE_PAGE_URL)
+    
+    # 本次所有新抓取到的数据汇总
+    new_results = web_results + share_results
+    
+    # 3. 数据去重与编号处理
+    seen_ips = set()
+    final_lines = []
+
+    # 先加入最新抓取的 IP（新数据优先排在顶部）
+    for line in new_results:
+        ip = extract_ip_from_line(line)
+        if ip and ip not in seen_ips:
+            seen_ips.add(ip)
+            final_lines.append(line)
+
+    # 读取旧文件 ips.txt，剔除新数据中已出现的旧 IP
+    if os.path.exists("ips.txt"):
+        with open("ips.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    clean_line = re.sub(r'\s+\d+$', '', line)  # 去掉旧序号
+                    ip = extract_ip_from_line(clean_line)
+                    if ip and ip not in seen_ips:
+                        seen_ips.add(ip)
+                        final_lines.append(clean_line)
+
+    # 4. 重新从 1 开始生成序号并写回 ips.txt
+    with open("ips.txt", "w", encoding="utf-8") as f:
+        for idx, item in enumerate(final_lines, start=1):
+            f.write(f"{item} {idx}\n")
+            
+    print(f"\n==========================================")
+    print(f"全部完成！汇总后共有 {len(final_lines)} 条 IP 记录。")
+    print(f"最新抓取的数据已置顶，重复 IP 已剔除，并重新编号 1 ~ {len(final_lines)} 写入 ips.txt。")
+
 
 if __name__ == "__main__":
     main()
