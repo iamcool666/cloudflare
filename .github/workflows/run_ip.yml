@@ -3,12 +3,13 @@ name: 'Fetch and Filter IPs'
 on:
   schedule:
     - cron: '21 */4 * * *' # 每 4 小时第 21 分钟自动运行一次
-  workflow_dispatch:      # 支持手动点击按钮随时运行
+  workflow_dispatch:      # 支持在 Actions 界面手动点击按钮触发运行
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
+    # 赋予写入权限，避免最后的 git push 发生 403 错误
     permissions:
       contents: write
 
@@ -25,11 +26,11 @@ jobs:
         run: pip install requests
 
       - name: 'Run Filter Script'
-        # 环境变量注入：将 GitHub Secrets 安全传递给 dnscf.py
+        # 核心：从仓库的 Repository Secrets 安全传递环境变量给脚本
         env:
           NAS_USER: ${{ secrets.NAS_USER }}
           NAS_PASS: ${{ secrets.NAS_PASS }}
-          WEBDAV_URL: ${{ secrets.WEBDAV_URL }} # 例如：https://ilove.pp.ua:5006/共享文件夹/ips.txt
+          WEBDAV_URL: ${{ secrets.WEBDAV_URL }}
         run: python dnscf.py
 
       - name: 'Commit and Push Changes'
@@ -37,5 +38,5 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add ips.txt
-          # 仅在文件改动时提交，防止空提交报错
+          # 仅在文件有实际改动时才提交，防止产生空提交报错
           git diff --quiet && git diff --staged --quiet || (git commit -m "自动更新优选国别 IP 列表" && git push)
