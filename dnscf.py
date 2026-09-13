@@ -7,7 +7,7 @@ Cloudflare 优选 IP 提取器 (多来源去重及安全诊断版)
 来源 3: 飞牛 NAS WebDAV 读取 WEBDAV_URL2 (ip_best_8443.txt) -> 单独生成 ips8443.txt (8443)
 
 限制：IP 序号从 1 开始，最多保留最新 15 个 IP，超出部分自动删除最早的 IP。
-格式：IP#CA 抓取 172ms 序号
+格式：IP#CA 抓取 序号 / IP#CA 自用 8443 序号
 """
 
 import os
@@ -39,6 +39,16 @@ def extract_ip_from_line(line):
     """从一行文本中提取出真实的 IP 地址（用于去重判断）"""
     match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', line)
     return match.group(0) if match else None
+
+
+def clean_latency_suffix(line):
+    """统一清除行内的延迟信息（例如清除 -78ms、 78ms 或 测速ms）"""
+    # 清理带连字符的延迟，例如 "-78ms"
+    line = re.sub(r'-\d+ms', '', line)
+    # 清理带空格或单独的延迟，例如 " 78ms" 或 " 测速ms"
+    line = re.sub(r'\s+\d+ms', '', line)
+    line = re.sub(r'\s+测速ms', '', line)
+    return line
 
 
 def fetch_from_web_anchor(web_url):
@@ -102,7 +112,6 @@ def fetch_from_webdav_url(webdav_url, tag="来源 2"):
     print(f"\n[{tag}] 正在向 WebDAV 请求文件: {webdav_url}")
     share_results = []
 
-    # 1. 环境变量检查
     if not webdav_url:
         print(f"[{tag}] 警告: 未检测到对应 WebDAV URL 环境变量，跳过读取。")
         return share_results
@@ -113,7 +122,6 @@ def fetch_from_webdav_url(webdav_url, tag="来源 2"):
         return share_results
 
     try:
-        # 忽略 SSL 警告
         import requests.packages.urllib3
         requests.packages.urllib3.disable_warnings()
 
@@ -123,7 +131,7 @@ def fetch_from_webdav_url(webdav_url, tag="来源 2"):
             auth=HTTPBasicAuth(nas_user, nas_pass),
             headers=headers,
             timeout=15,
-            verify=False  # 禁用 SSL 验证
+            verify=False
         )
 
         print(f"[{tag}] 服务器响应状态码: HTTP {response.status_code}")
@@ -157,7 +165,7 @@ def fetch_from_webdav_url(webdav_url, tag="来源 2"):
 
 
 def process_and_save_ips(new_data, target_file, max_limit=15):
-    """去重、合并历史记录、限制最多保留 max_limit 条（超出的最早记录被擦除），重新从 1 开始编号并保存"""
+    """去重、剔除延迟后缀、合并历史记录、限制最多保留 max_limit 条，重新从 1 开始编号并保存"""
     seen_ips = set()
     final_lines = []
 
@@ -166,7 +174,9 @@ def process_and_save_ips(new_data, target_file, max_limit=15):
         ip = extract_ip_from_line(line)
         if ip and ip not in seen_ips:
             seen_ips.add(ip)
-            final_lines.append(line)
+            # 清理延迟后缀
+            cleaned_line = clean_latency_suffix(line)
+            final_lines.append(cleaned_line)
 
     # 2. 读取历史文件，补充尚未重复的历史 IP（按从新到老排序）
     if os.path.exists(target_file):
@@ -175,6 +185,7 @@ def process_and_save_ips(new_data, target_file, max_limit=15):
                 line = line.strip()
                 if line:
                     clean_line = re.sub(r'\s+\d+$', '', line)  # 剔除旧数字序号
+                    clean_line = clean_latency_suffix(clean_line)  # 清理延迟后缀
                     ip = extract_ip_from_line(clean_line)
                     if ip and ip not in seen_ips:
                         seen_ips.add(ip)
@@ -192,24 +203,15 @@ def process_and_save_ips(new_data, target_file, max_limit=15):
 
 
 def main():
-    # 从环境变量分别读取 WEBDAV_URL (443) 和 WEBDAV_URL2 (8443)
     webdav_url_443 = os.environ.get("WEBDAV_URL")
     webdav_url_8443 = os.environ.get("WEBDAV_URL2")
 
-    # 1. 抓取来源 1（网页）
     web_results = fetch_from_web_anchor(IP_SOURCE_URL)
-    
-    # 2. 读取来源 2（NAS WebDAV 443 - WEBDAV_URL）
     dav_results_443 = fetch_from_webdav_url(webdav_url_443, tag="来源 2 (443)")
-    
-    # 3. 读取来源 3（NAS WebDAV 8443 - WEBDAV_URL2）
     dav_results_8443 = fetch_from_webdav_url(webdav_url_8443, tag="来源 3 (8443)")
     
-    # ------------------ 处理 ips.txt (合并 来源1 + 来源2，最多保留 15 个) ------------------
     new_443_results = web_results + dav_results_443
     total_443 = process_and_save_ips(new_443_results, "ips.txt", max_limit=15)
-    
-    # ------------------ 处理 ips8443.txt (单独处理 来源3，最多保留 15 个) ------------------
     total_8443 = process_and_save_ips(dav_results_8443, "ips8443.txt", max_limit=15)
     
     print(f"\n==========================================")
