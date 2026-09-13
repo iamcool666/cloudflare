@@ -7,7 +7,7 @@ Cloudflare 优选 IP 提取器 (多来源去重及安全诊断版)
 来源 3: 飞牛 NAS WebDAV 读取 WEBDAV_URL2 (ip_best_8443.txt) -> 单独生成 ips8443.txt (8443)
 
 限制：IP 序号从 1 开始，最多保留最新 15 个 IP，超出部分自动删除最早的 IP。
-格式：IP#CA 抓取 序号 / IP#CA 自用 8443 序号
+格式：IP#CA 自用 443 序号 / IP#CA 自用 8443 序号
 """
 
 import os
@@ -94,7 +94,7 @@ def fetch_from_web_anchor(web_url):
                 time.sleep(2)
                 
             country_code = get_ip_location(ip)
-            base_formatted = f"{ip}#CA 抓取 {latency}"
+            base_formatted = f"{ip}#CA 自用 443 {latency}"
             results.append(base_formatted)
             print(f"[来源 1] [{index + 1}/{len(target_matches)}] 提取成功 -> {base_formatted}")
             
