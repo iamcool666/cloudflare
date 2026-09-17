@@ -1,4 +1,4 @@
-name: 'Fetch and Filter IPs'
+Name: 'Fetch and Filter IPs'
 
 on:
   schedule:
@@ -38,6 +38,6 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add ips.txt ips8443.txt               # 同时暂存 ips.txt 和 ips8443.txt
+          git add ips.txt jp.txt sp.txt jp8443.txt sp8443.txt
           # 仅在文件有实际改动时才提交，防止产生空提交报错
-          git diff --quiet && git diff --staged --quiet || (git commit -m "自动更新优选国别 IP 列表 (443 & 8443)" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "自动更新优选国别 IP 列表 (JP/SP/443/8443)" && git push)
