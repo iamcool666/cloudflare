@@ -1,4 +1,4 @@
-Name: 'Fetch and Filter IPs'
+name: 'Fetch and Filter IPs'
 
 on:
   schedule:
