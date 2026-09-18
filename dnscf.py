@@ -8,9 +8,9 @@ Cloudflare 优选 IP 提取器 (网段归类版)
 
 输出逻辑:
 - 443 来源 172.64 网段 -> jp.txt (ip#JP 443 序号)
-- 443 来源 104.18 网段 -> sp.txt (ip#SP 443 序号)
+- 443 来源 104.18 网段 -> sg.txt (ip#SG 443 序号)
 - 8443 来源 172.64 网段 -> jp8443.txt (ip#JP 8443 序号)
-- 8443 来源 104.18 网段 -> sp8443.txt (ip#SP 8443 序号)
+- 8443 来源 104.18 网段 -> sg8443.txt (ip#SG 8443 序号)
 - 所有其余网段合并保存 -> ips.txt (ip#CA 自用 443 序号)
 """
 
@@ -226,9 +226,9 @@ def main():
 
     # 结果分类容器
     jp_443_list = []
-    sp_443_list = []
+    sg_443_list = []
     jp_8443_list = []
-    sp_8443_list = []
+    sg_8443_list = []
     other_list = []
 
     # 处理 443 来源数据 (来源 1 和 来源 2)
@@ -239,7 +239,7 @@ def main():
         if ip.startswith("172.64."):
             jp_443_list.append(reformat_line_remark(line, "JP 443"))
         elif ip.startswith("104.18."):
-            sp_443_list.append(reformat_line_remark(line, "SP 443"))
+            sg_443_list.append(reformat_line_remark(line, "SG 443"))
         else:
             other_list.append(reformat_line_remark(line, "CA 自用 443"))
 
@@ -251,23 +251,23 @@ def main():
         if ip.startswith("172.64."):
             jp_8443_list.append(reformat_line_remark(line, "JP 8443"))
         elif ip.startswith("104.18."):
-            sp_8443_list.append(reformat_line_remark(line, "SP 8443"))
+            sg_8443_list.append(reformat_line_remark(line, "SG 8443"))
         else:
             other_list.append(reformat_line_remark(line, "CA 自用 443"))
 
     # 写入各分类文件
     count_jp = process_and_save_ips(jp_443_list, "jp.txt", max_limit=15)
-    count_sp = process_and_save_ips(sp_443_list, "sp.txt", max_limit=15)
+    count_sg = process_and_save_ips(sg_443_list, "sg.txt", max_limit=15)
     count_jp8443 = process_and_save_ips(jp_8443_list, "jp8443.txt", max_limit=15)
-    count_sp8443 = process_and_save_ips(sp_8443_list, "sp8443.txt", max_limit=15)
+    count_sg8443 = process_and_save_ips(sg_8443_list, "sg8443.txt", max_limit=15)
     count_other = process_and_save_ips(other_list, "ips.txt", max_limit=15)
 
     print(f"\n==========================================")
     print(f"处理完成！")
     print(f"[jp.txt]      (172.64 网段 443)  : 已保存 {count_jp} 条 (1~{count_jp})")
-    print(f"[sp.txt]      (104.18 网段 443)  : 已保存 {count_sp} 条 (1~{count_sp})")
+    print(f"[sg.txt]      (104.18 网段 443)  : 已保存 {count_sg} 条 (1~{count_sg})")
     print(f"[jp8443.txt]  (172.64 网段 8443) : 已保存 {count_jp8443} 条 (1~{count_jp8443})")
-    print(f"[sp8443.txt]  (104.18 网段 8443) : 已保存 {count_sp8443} 条 (1~{count_sp8443})")
+    print(f"[sg8443.txt]  (104.18 网段 8443) : 已保存 {count_sg8443} 条 (1~{count_sg8443})")
     print(f"[ips.txt]     (其余合并网段)     : 已保存 {count_other} 条 (1~{count_other})")
 
 
