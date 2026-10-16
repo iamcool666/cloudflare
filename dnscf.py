@@ -179,7 +179,7 @@ def reformat_line_remark(line, new_label):
     return f"{ip}#{new_label}{latency_str}"
 
 
-def process_and_save_ips(new_data, target_file, max_limit=15):
+def process_and_save_ips(new_data, target_file, max_limit=10):
     """去重、剔除旧序号、合并历史记录、限制最多保留 max_limit 条，重新从 1 开始编号并保存"""
     seen_ips = set()
     final_lines = []
@@ -205,7 +205,7 @@ def process_and_save_ips(new_data, target_file, max_limit=15):
                         seen_ips.add(ip)
                         final_lines.append(clean_line)
 
-    # 3. 截取最多 max_limit (15) 条，优先剔除最早的 IP
+    # 3. 截取最多 max_limit (10) 条，优先剔除最早的 IP
     final_lines = final_lines[:max_limit]
 
     # 4. 重新从 1 开始追加序号并写入文件
@@ -255,12 +255,12 @@ def main():
         else:
             other_list.append(reformat_line_remark(line, "CA 自用 443"))
 
-    # 写入各分类文件
-    count_jp = process_and_save_ips(jp_443_list, "jp.txt", max_limit=15)
-    count_sg = process_and_save_ips(sg_443_list, "sg.txt", max_limit=15)
-    count_jp8443 = process_and_save_ips(jp_8443_list, "jp8443.txt", max_limit=15)
-    count_sg8443 = process_and_save_ips(sg_8443_list, "sg8443.txt", max_limit=15)
-    count_other = process_and_save_ips(other_list, "ips.txt", max_limit=15)
+    # 写入各分类文件（已将 max_limit 默认值调整为 10）
+    count_jp = process_and_save_ips(jp_443_list, "jp.txt", max_limit=10)
+    count_sg = process_and_save_ips(sg_443_list, "sg.txt", max_limit=10)
+    count_jp8443 = process_and_save_ips(jp_8443_list, "jp8443.txt", max_limit=10)
+    count_sg8443 = process_and_save_ips(sg_8443_list, "sg8443.txt", max_limit=10)
+    count_other = process_and_save_ips(other_list, "ips.txt", max_limit=10)
 
     print(f"\n==========================================")
     print(f"处理完成！")
