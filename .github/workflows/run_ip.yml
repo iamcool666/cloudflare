@@ -2,7 +2,7 @@ name: 'Fetch and Filter IPs'
 
 on:
   schedule:
-    - cron: '21 */6 * * *' # 每 4 小时第 21 分钟自动运行一次
+    - cron: '21 0 * * *' # 每 4 小时第 21 分钟自动运行一次
   workflow_dispatch:      # 支持手动触发运行
 
 jobs:
